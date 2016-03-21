@@ -23,7 +23,6 @@ cfg.blocksize = 3;
 cfg.overlap = 95 * cfg.blocksize / 100;
 % define your channel names 
 cfg.channel = {'EX1','EX2'};
-cfg.channel = {'1'};
 % low pass filter settings
 cfg.lowpass = 'yes'; 
 cfg.l_freq = 15; % low frequency band
@@ -126,7 +125,7 @@ sound(beep, beep_fs);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % this is the main task loop where realtime incoming data is processed
-% append your own code in this loop
+% append your own code at the end of this loop
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 while true
  
