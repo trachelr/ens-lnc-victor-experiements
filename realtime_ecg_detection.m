@@ -123,10 +123,9 @@ count       = 0;
 % play first beep
 sound(beep, beep_fs);
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% *************************************************************************
 % this is the main task loop where realtime incoming data is processed
-% append your own code at the end of this loop
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% *************************************************************************
 while true
  
     % determine number of samples available in buffer
@@ -135,11 +134,13 @@ while true
     % see whether new samples are available
     newsamples = (hdr.nSamples*hdr.nTrials-prevSample);
 
-    % if there's enought available data do 
+    % *************************************************************************
+    %   if there's enought available data: 
+    %       read buffer + signal processing + ECG detection
+    %   else:
+    %       execute the task code (display, servo-commands, etc...)
+    % *************************************************************************
     if newsamples>=blocksize
-    % *********************************************************************
-    %        Signal processing + ECG detection
-    % *********************************************************************
         % determine the samples to process
         if strcmp(cfg.bufferdata, 'last')
             begsample  = hdr.nSamples*hdr.nTrials - blocksize + 1;
