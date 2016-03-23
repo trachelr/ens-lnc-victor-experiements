@@ -27,6 +27,10 @@ cfg.channel = {'EX1','EX2'};
 cfg.lowpass = 'yes'; 
 cfg.l_freq = 15; % low frequency band
 cfg.filter_len  = 150;
+% high pass filter settings
+cfg.highpass = 'yes'; 
+cfg.h_freq = 1; % high frequency band
+cfg.hp_filter_len  = 250;
 % detection settings
 cfg.derivative = 'yes';
 cfg.deriv_order = 2;
@@ -195,7 +199,12 @@ while true
                                            cfg.l_freq, cfg.filter_len, ...
                                            cfg.filter_type, 'onepass');
         end
-
+        if strcmp(cfg.highpass, 'yes')
+            % high filtering to remove dc...
+            data.trial{1} = ft_preproc_highpassfilter(data.trial{1}, hdr.Fs, ... 
+                                           cfg.h_freq, cfg.hp_filter_len, ...
+                                           cfg.filter_type, 'onepass');
+        end
         % *********************************************************************
         % 3rd step : Pre-thresholding (derivative, baseline, wavelet, etc...)
         % *********************************************************************
