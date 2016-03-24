@@ -22,17 +22,19 @@ cfg.blocksize = 3;
 % define overlap between blocs in percent
 cfg.overlap = 95 * cfg.blocksize / 100;
 % define your channel names 
-cfg.channel = {'EX1','EX2'};
+cfg.channel = {'EX1'};
+% enable detrend
+cfg.detrend = 'yes';
 % low pass filter settings
 cfg.lowpass = 'yes'; 
-cfg.l_freq = 15; % low frequency band
+cfg.l_freq = 35; % low frequency band
 cfg.filter_len  = 150;
+cfg.filter_type = 'fir';
 % high pass filter settings
-cfg.highpass = 'yes'; 
+cfg.highpass = 'no'; 
 cfg.h_freq = 1; % high frequency band
-cfg.hp_filter_len  = 250;
 % detection settings
-cfg.derivative = 'yes';
+cfg.derivative = 'no';
 cfg.deriv_order = 2;
 % threshold setting
 cfg.threshold = 'std';
@@ -116,13 +118,14 @@ end
 % determine the size of blocks to process
 blocksize = round(cfg.blocksize * hdr.Fs);
 overlap   = round(cfg.overlap*hdr.Fs);
- 
+
 if strcmp(cfg.jumptoeof, 'yes')
   prevSample = hdr.nSamples * hdr.nTrials;
 else
   prevSample  = 0;
 end
-count       = 0;
+count    = 0;
+prevPeak = prevSample;
 
 % play first beep
 sound(beep, beep_fs);
@@ -177,7 +180,7 @@ while true
 
         % put the data in a fieldtrip-like raw structure
         data.trial{1} = dat;
-        data.time{1}  = 1:length(dat)/hdr.Fs;
+        data.time{1}  = ((begsample:endsample)-endsample)/hdr.Fs;
         data.label    = hdr.label(chanindx);
         data.hdr      = hdr;
         data.fsample  = hdr.Fs;
@@ -202,7 +205,7 @@ while true
         if strcmp(cfg.highpass, 'yes')
             % high filtering to remove dc...
             data.trial{1} = ft_preproc_highpassfilter(data.trial{1}, hdr.Fs, ... 
-                                           cfg.h_freq, cfg.hp_filter_len, ...
+                                           cfg.h_freq, cfg.filter_len, ...
                                            cfg.filter_type, 'onepass');
         end
         % *********************************************************************
@@ -228,18 +231,32 @@ while true
         end % add more thresholding methods here...
 
         % see if the last packet of data reached the threshold
-        if sum(abs(data.trial{1}(:, end-blocksize+overlap-1:end)) > abs(data.threshold))
+        idx = find(abs(data.trial{1}(:, end-blocksize+overlap-1:end)) > abs(data.threshold));
+        if ~isempty(idx)
             % *****************************
             %   Send servo-command here
             % *****************************
-            sound(beep, beep_fs);
+            curPeak = begsample + overlap + idx(1);
+            % if previous peak wasn't in the past 300ms
+            if prevPeak < curPeak - .33 * hdr.Fs
+                sound(beep, beep_fs);
+            end
+            % save ECG peak sample index
+            prevPeak = curPeak;
         end
 
         if strcmp(cfg.vizualisation, 'yes')
+            
             % plot the data just like a standard FieldTrip raw data strucute
             plot(data.time{1}(cfg.filter_len+1:end), data.trial{1}(:, cfg.filter_len+1:end));
-            xlim([data.time{1}(cfg.filter_len) data.time{1}(end)]);
-            ylim([-abs(data.threshold), abs(data.threshold)]);
+            tmin = data.time{1}(cfg.filter_len);
+            tmax = data.time{1}(end);
+            hold on
+            plot([tmin, tmax], [data.threshold, data.threshold], '--r');
+            plot([tmin, tmax], [-data.threshold, -data.threshold], '--r');
+            xlim([tmin, tmax]);
+            ylim([-abs(data.threshold) * 1.1, abs(data.threshold) * 1.1]);
+            hold off
             % force Matlab to update the figure
             drawnow
         end
