@@ -20,9 +20,9 @@ cfg = struct;
 % define blocksize in seconds
 cfg.blocksize = 3;
 % define overlap between blocs in percent
-cfg.overlap = 95 * cfg.blocksize / 100;
+cfg.overlap = 99 * cfg.blocksize / 100;
 % define your channel names 
-cfg.channel = {'EX1'};
+cfg.channel = {'1'};
 % enable detrend
 cfg.detrend = 'yes';
 % low pass filter settings
