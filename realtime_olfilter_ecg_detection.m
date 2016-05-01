@@ -10,35 +10,28 @@
 %
 %   Author : Romain Trachel 
 %   Source : ft_realtime_signalviewer.m
-%   Date : 04/21/2016
+%   Date : 05/30/2016
 %
 % *************************************************************************
 
+clear all
 % define fieldtrip configuration structure
 cfg = struct;
-FM = struct;
 % define blocksize in seconds
-cfg.blocksize = .25;
+cfg.blocksize = 0.005;
 % define overlap between blocs in percent
-cfg.overlap = 95 * cfg.blocksize / 100;
+cfg.overlap = 90 * cfg.blocksize / 100;
 % define your channel names 
 cfg.channel = {'1'};
-% enable detrend
-cfg.detrend = 'yes';
-% low pass filter settings
-cfg.lowpass = 'yes'; 
-cfg.l_freq = 35; % low frequency band
-cfg.filter_len  = 150;
-cfg.filter_type = 'fir';
-% high pass filter settings
-cfg.highpass = 'no'; 
-cfg.h_freq = 1; % high frequency band
 % detection settings
 cfg.derivative = 'no';
 cfg.deriv_order = 2;
+% define time window length
+% for visualisation and auto thresholding
+cfg.timelen = 1;
 % threshold setting
-cfg.threshold = 4*10^21; %'std';
-cfg.thresh_scale = 3.8;
+cfg.threshold = 'std'; %10e7;
+cfg.thresh_scale = 1.5;
 % or it could be a constant value (e.g. -4*10^6);
 cfg.vizualisation = 'yes';
 
@@ -70,18 +63,6 @@ end
 % *************************************************************************
 % set the signal processing configuration options
 % *************************************************************************
-% enable baseline correction
-if ~isfield(cfg, 'demean'),         cfg.demean = 'yes';       end
-% enable detrend correction
-if ~isfield(cfg, 'detrend'),        cfg.detrend = 'yes';       end
-% enable low pass filtering
-if ~isfield(cfg, 'lowpass'),         cfg.lowpass = 'yes';   end
-% low pass frequency (see ft_preproc_lowpassfilter)
-if ~isfield(cfg, 'l_freq'),         cfg.l_freq = 45;       end
-% filter type (see ft_preproc_lowpassfilter)
-if ~isfield(cfg, 'filter_type'),      cfg.filter_type  = 'fir';   end
-% filter length (see ft_preproc_lowpassfilter)
-if ~isfield(cfg, 'filter_len'),      cfg.filter_len  = 25;   end
 % enable derivative temporal filter 
 if ~isfield(cfg, 'derivative'),   cfg.derivative = 'no';    end
 % derivative order (ft_preproc_derivative)
@@ -92,10 +73,10 @@ if ~isfield(cfg, 'threshold'),  cfg.threshold = 'std';  end
 if ~isfield(cfg, 'thresh_scale'),  cfg.thresh_scale = 1;    end
 % enable vizualisation 
 if ~isfield(cfg, 'vizualisation'),  cfg.vizualisation = 'yes';       end
-
-cfg.olfilter     = ft_getopt(cfg, 'olfilter', 'yes');      % continuous online filter
-cfg.olfiltord    = ft_getopt(cfg, 'olfiltord',  3);
-cfg.olfreq       = ft_getopt(cfg, 'olfreq',  [3 45]);
+% continuous online filter
+if ~isfield(cfg, 'olfilter'), cfg.olfilter = 'yes';    end
+if ~isfield(cfg, 'olfiltord'), cfg.olfiltord =  3;  end
+if ~isfield(cfg, 'olfreq'),      cfg.olfreq = [2 45]; end
 
 if ~isfield(cfg, 'beep_file');
     % load file from windows (but it wont work for mac or linux)
@@ -121,7 +102,7 @@ end
  
 % determine the size of blocks to process
 blocksize = round(cfg.blocksize * hdr.Fs);
-overlap   = round(cfg.overlap*hdr.Fs);
+overlap   = round(cfg.overlap * hdr.Fs);
 
 if strcmp(cfg.jumptoeof, 'yes')
   prevSample = hdr.nSamples * hdr.nTrials;
@@ -130,7 +111,12 @@ else
 end
 count    = 0;
 prevPeak = prevSample;
+prevState = [];
 
+blen = cfg.timelen * hdr.Fs / blocksize;
+bdata = zeros([blen, 1]);
+mdata = 0;
+sdata = 1;
 % play first beep
 sound(beep, beep_fs);
 
@@ -138,7 +124,7 @@ sound(beep, beep_fs);
 % this is the main task loop where realtime incoming data is processed
 % *************************************************************************
 while true
- 
+
     % determine number of samples available in buffer
     hdr = ft_read_header(cfg.headerfile, 'headerformat', cfg.headerformat, 'cache', true);
 
@@ -172,11 +158,12 @@ while true
         % remember up to where the data was read
         prevSample  = endsample;
         count       = count + 1;
-        fprintf('processing segment %d from sample %d to %d\n', count, begsample, endsample);
+        % fprintf('processing segment %d from sample %d to %d\n', count, begsample, endsample);
 
         % read data segment from buffer
         dat = ft_read_data(cfg.datafile, 'header', hdr, 'dataformat', cfg.dataformat, 'begsample', begsample, 'endsample', endsample, 'chanindx', chanindx, 'checkboundary', false);
-
+        dat = double(dat);
+        
         % if you want to read some events as well...
         if strcmp(cfg.readevent, 'yes')
             evt = ft_read_event(cfg.eventfile, 'header', hdr, 'minsample', begsample, 'maxsample', endsample);
@@ -184,72 +171,69 @@ while true
 
         % put the data in a fieldtrip-like raw structure
         data.trial{1} = dat;
-        data.time{1}  = ((begsample:endsample)-endsample)/hdr.Fs;
+        data.time{1}  = ((begsample:endsample)*1.)/hdr.Fs;
         data.label    = hdr.label(chanindx);
         data.hdr      = hdr;
         data.fsample  = hdr.Fs;
-
         % *********************************************************************
-        % 1st step : Pre-processing (detrend, artifact detection, etc...)
+        % *                 Apply online filter
         % *********************************************************************
-        data.trial{1} = ft_preproc_baselinecorrect(data.trial{1});
-        data.trial{1} = data.trial{1} / std(data.trial{1});
-        if strcmp(cfg.detrend, 'yes')
-            % detrend the data to remove dc offset and slow drifts
-            data.trial{1} = ft_preproc_detrend(data.trial{1}, 1, length(dat)-1);
-        end
-
-        if isempty(fieldnames(FM))
-            % initialize online filter
-            if cfg.olfreq(1)==0
+        if strcmp(cfg.olfilter, 'yes')
+            if ~exist('FM', 'var')
+              % initialize online filter
+              if cfg.olfreq(1)==0
                 fprintf('using online low-pass filter\n');
                 [B, A] = butter(cfg.olfiltord, cfg.olfreq(2)/hdr.Fs);
-            elseif cfg.olfreq(2) >= hdr.Fs/2
+              elseif cfg.olfreq(2)>=hdr.Fs/2
                 fprintf('using online high-pass filter\n');
                 [B, A] = butter(cfg.olfiltord, cfg.olfreq(1)/hdr.Fs, 'high');
-            else
+              else
                 fprintf('using online band-pass filter\n');
                 [B, A] = butter(cfg.olfiltord, cfg.olfreq/hdr.Fs);
+              end
+              % use one sample to initialize
+              [dat, z] = filter(B, A, dat);
             end
-            % use one sample to initialize
-            FM = ft_preproc_online_filter_init(B, A, data.trial{1}(:, 1));
+            % apply online filter
+            [dat, z] = filter(B, A, dat, z', 2);
+            FM.z = double(z');
         end
-        % apply online filter
-        [FM, dat] = ft_preproc_online_filter_apply(FM, data.trial{1});
-        data.trial{1} = dat;
+
+        data.trial{1} = dat; % * 1e-8;
+        bdata = circshift(bdata, 1);
+        bdata(end) = mean(data.trial{1});
         
         % *********************************************************************
         % 3rd step : Pre-thresholding (derivative, baseline, wavelet, etc...)
         % *********************************************************************
         if strcmp(cfg.derivative, 'yes')
             % temporal Nth order derivative
-            data.trial{1} = ft_preproc_derivative(data.trial{1}, cfg.deriv_order);
+            s = diff(bdata, cfg.deriv_order);
         else
-            % or baseline correction to detect the peak amplitude
-            % data.trial{1} = ft_preproc_baselinecorrect(data.trial{1}, ...
-            %                            cfg.filter_len+1, length(dat)-1);
+            s = bdata;
         end
-
         % *********************************************************************
-        % 4th step : Thresolding (fixed, std, ci95, etc...)
+        % *       Thresolding (fixed, std, ci95, etc...)
         % *********************************************************************
         if strcmp(cfg.threshold, 'std')
             % compute std over the current block of data
-            data.threshold = cfg.thresh_scale * std(data.trial{1}(cfg.filter_len+1:end));
+            if count > blen
+                mdata = mean(s);
+                sdata = std(s);
+            end
+            data.threshold = cfg.thresh_scale * sdata;
         else % or use a fixed threhsold
             data.threshold = cfg.threshold;
         end % add more thresholding methods here...
-
+        
         % see if the last packet of data reached the threshold
-        % idx = find(abs(data.trial{1}(:, end-blocksize+overlap-1:end)) > abs(data.threshold));
-        idx = find(abs(data.trial{1}) > abs(data.threshold));
-        if ~isempty(idx)
+        if abs(s(1)) > abs(data.threshold)
             % *****************************
             %   Send servo-command here
             % *****************************
-            curPeak = begsample + overlap + idx(1);
+            curPeak = begsample + overlap;
             % if previous peak wasn't in the past 300ms
-            if prevPeak < curPeak - .33 * hdr.Fs
+            if (curPeak - prevPeak) > .33 * hdr.Fs
                 sound(beep, beep_fs);
             end
             % save ECG peak sample index
@@ -257,16 +241,17 @@ while true
         end
 
         if strcmp(cfg.vizualisation, 'yes')
-            
+
             % plot the data just like a standard FieldTrip raw data strucute
-            plot(data.time{1}, data.trial{1});
-            tmin = data.time{1}(1);
-            tmax = data.time{1}(end);
+            % plot(data.time{1}, data.trial{1});
+            tmin = 0;
+            tmax = blen/hdr.Fs;
+            plot(linspace(tmin, tmax, blen), s);
             hold on
-            % plot([tmin, tmax], [data.threshold, data.threshold], '--r');
-            % plot([tmin, tmax], [-data.threshold, -data.threshold], '--r');
+            plot([tmin, tmax], [data.threshold, data.threshold], '--r');
+            plot([tmin, tmax], [-data.threshold, -data.threshold], '--r');
             xlim([tmin, tmax]);
-            % ylim([-abs(data.threshold) * 1.1, abs(data.threshold) * 1.1]);
+            ylim([-abs(data.threshold) * 1.1, abs(data.threshold) * 1.1]);
             hold off
             % force Matlab to update the figure
             drawnow
