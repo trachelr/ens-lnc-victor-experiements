@@ -28,7 +28,7 @@ cfg.derivative = 'no';
 cfg.deriv_order = 2;
 % define time window length
 % for visualisation and auto thresholding
-cfg.timelen = 5;
+cfg.timelen = 1;
 % threshold setting
 cfg.threshold = 'std'; %10e7;
 cfg.thresh_scale = 1.5;
@@ -233,7 +233,7 @@ while true
             % *****************************
             curPeak = begsample + overlap;
             % if previous peak wasn't in the past 300ms
-            if (cfg.delay == 0) && (curPeak - prevPeak) > .33 * hdr.Fs
+            if (curPeak - prevPeak) > .33 * hdr.Fs
                 sound(beep, beep_fs);
             end
             % save ECG peak sample index
