@@ -35,6 +35,11 @@ cfg.thresh_scale = 1.5;
 % or it could be a constant value (e.g. -4*10^6);
 cfg.vizualisation = 'yes';
 
+% define whether the next stim is delayed or not
+cfg.is_delayed = 0; % 0 = no / 1 = yes
+% define the delay time in seconds
+cfg.delay_time = 5;
+
 % *************************************************************************
 % set the buffer configuration options
 % *************************************************************************
@@ -111,6 +116,7 @@ else
 end
 count    = 0;
 prevPeak = prevSample;
+curPeak = prevSample;
 prevState = [];
 
 blen = cfg.timelen * hdr.Fs / blocksize;
@@ -227,17 +233,37 @@ while true
         end % add more thresholding methods here...
         
         % see if the last packet of data reached the threshold
-        if abs(s(1)) > abs(data.threshold)
+        if (cfg.is_delayed == 0) && (abs(s(1)) > abs(data.threshold))
+            % get time of the current peak
+            curPeak = begsample + overlap;
+            % if previous peak wasn't in the past 300ms
+            if (curPeak - prevPeak) > .33 * hdr.Fs
+                % *****************************
+                %   Send servo-command here
+                % *****************************
+                sound(beep, beep_fs);
+                % the decide whether next stim is delayed or not
+                cfg.is_delayed = rand(1) > .9; % 10 % probability...
+                if cfg.is_delayed > 0
+                    disp('delay on');
+                else
+                    % save ECG peak sample index
+                    prevPeak = curPeak;
+                end
+            end
+        % if is delayed and time is passed, send command
+        elseif (cfg.is_delayed == 1) && (curPeak - prevPeak) > cfg.delay_time * hdr.Fs
             % *****************************
             %   Send servo-command here
             % *****************************
-            curPeak = begsample + overlap;
-            % if previous peak wasn't in the past 300ms
-            if (cfg.delay == 0) && (curPeak - prevPeak) > .33 * hdr.Fs
-                sound(beep, beep_fs);
-            end
-            % save ECG peak sample index
+            sound(beep, beep_fs);
+            
+            % turn it to no delay for next stimulation
+            cfg.is_delayed = 0;
+            disp('delay off');
             prevPeak = curPeak;
+        else
+            curPeak = begsample + overlap;
         end
 
         if strcmp(cfg.vizualisation, 'yes')
