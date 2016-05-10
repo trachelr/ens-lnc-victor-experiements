@@ -18,7 +18,7 @@ clear all
 % define fieldtrip configuration structure
 cfg = struct;
 % define blocksize in seconds
-cfg.blocksize = 0.005;
+cfg.blocksize = 0.01;
 % define overlap between blocs in percent
 cfg.overlap = 90 * cfg.blocksize / 100;
 % define your channel names 
@@ -28,7 +28,7 @@ cfg.derivative = 'no';
 cfg.deriv_order = 2;
 % define time window length
 % for visualisation and auto thresholding
-cfg.timelen = 5;
+cfg.timelen = 1;
 % threshold setting
 cfg.threshold = 'std'; %10e7;
 cfg.thresh_scale = 1.5;
@@ -36,7 +36,7 @@ cfg.thresh_scale = 1.5;
 cfg.vizualisation = 'yes';
 
 % define whether the next stim is delayed or not
-cfg.is_delayed = 0; % 0 = no / 1 = yes
+cfg.is_delayed = 'yes';
 % define the delay time in seconds
 cfg.delay_time = 5;
 
@@ -114,12 +114,15 @@ if strcmp(cfg.jumptoeof, 'yes')
 else
   prevSample  = 0;
 end
-count    = 0;
+
+sampleCount = 0;
+peakCount = 0;
+
 prevPeak = prevSample;
 curPeak = prevSample;
 prevState = [];
 
-blen = cfg.timelen * hdr.Fs / blocksize;
+blen = round(cfg.timelen * hdr.Fs / blocksize);
 bdata = zeros([blen, 1]);
 mdata = 0;
 sdata = 1;
@@ -143,7 +146,7 @@ while true
     %   else:
     %       execute the task code (display, servo-commands, etc...)
     % *************************************************************************
-    if newsamples>=blocksize
+    if newsamples >= blocksize
         % determine the samples to process
         if strcmp(cfg.bufferdata, 'last')
             begsample  = hdr.nSamples*hdr.nTrials - blocksize + 1;
@@ -163,8 +166,8 @@ while true
 
         % remember up to where the data was read
         prevSample  = endsample;
-        count       = count + 1;
-        % fprintf('processing segment %d from sample %d to %d\n', count, begsample, endsample);
+        sampleCount = sampleCount + 1;
+        % fprintf('processing segment %d from sample %d to %d\n', sampleCount, begsample, endsample);
 
         % read data segment from buffer
         dat = ft_read_data(cfg.datafile, 'header', hdr, 'dataformat', cfg.dataformat, 'begsample', begsample, 'endsample', endsample, 'chanindx', chanindx, 'checkboundary', false);
@@ -189,13 +192,13 @@ while true
               % initialize online filter
               if cfg.olfreq(1)==0
                 fprintf('using online low-pass filter\n');
-                [B, A] = butter(cfg.olfiltord, cfg.olfreq(2)/hdr.Fs);
+                [B, A] = butter(cfg.olfiltord, 2 * cfg.olfreq(2)/hdr.Fs);
               elseif cfg.olfreq(2)>=hdr.Fs/2
                 fprintf('using online high-pass filter\n');
-                [B, A] = butter(cfg.olfiltord, cfg.olfreq(1)/hdr.Fs, 'high');
+                [B, A] = butter(cfg.olfiltord, 2 * cfg.olfreq(1)/hdr.Fs, 'high');
               else
                 fprintf('using online band-pass filter\n');
-                [B, A] = butter(cfg.olfiltord, cfg.olfreq/hdr.Fs);
+                [B, A] = butter(cfg.olfiltord, 2 * cfg.olfreq/hdr.Fs);
               end
               % use one sample to initialize
               [dat, z] = filter(B, A, dat);
@@ -223,7 +226,7 @@ while true
         % *********************************************************************
         if strcmp(cfg.threshold, 'std')
             % compute std over the current block of data
-            if count > blen
+            if sampleCount > blen
                 mdata = mean(s);
                 sdata = std(s);
             end
@@ -233,41 +236,40 @@ while true
         end % add more thresholding methods here...
         
         % see if the last packet of data reached the threshold
-        if (cfg.is_delayed == 0) && (abs(s(1)) > abs(data.threshold))
+        if abs(s(1)) > abs(data.threshold)
             % get time of the current peak
             curPeak = begsample + overlap;
-            % if previous peak wasn't in the past 300ms
-            if (curPeak - prevPeak) > .33 * hdr.Fs
+            if strcmp(cfg.is_delayed, 'no') && (curPeak - prevPeak) > .33 * hdr.Fs
                 % *****************************
                 %   Send servo-command here
                 % *****************************
                 sound(beep, beep_fs);
-                % the decide whether next stim is delayed or not
-                cfg.is_delayed = rand(1) > .9; % 10 % probability...
-                if cfg.is_delayed > 0
-                    disp('delay on');
-                else
-                    % save ECG peak sample index
-                    prevPeak = curPeak;
-                end
+                
+                % count stimulations
+                peakCount = peakCount + 1;
+            % else if delayed is on save curPeak
+            elseif strcmp(cfg.is_delayed, 'yes') && (curPeak - prevPeak) > .33 * hdr.Fs
+                prevState = [prevState, curPeak];
             end
-        % if is delayed and time is passed, send command
-        elseif (cfg.is_delayed == 1) && (curPeak - prevPeak) > cfg.delay_time * hdr.Fs
-            % *****************************
-            %   Send servo-command here
-            % *****************************
-            sound(beep, beep_fs);
-            
-            % turn it to no delay for next stimulation
-            cfg.is_delayed = 0;
-            disp('delay off');
+            % save ECG peak sample index
             prevPeak = curPeak;
         else
-            curPeak = begsample + overlap;
+            % compute the delay of each detected peaks 
+            stateDiff = (endsample - prevState);
+            if sum(stateDiff > cfg.delay_time * hdr.Fs)
+                % remove last peak from the list
+                prevState = prevState(2:end);
+                % ************************************
+                %   Send delayed servo-command here
+                % ************************************
+                sound(beep, beep_fs);
+                
+                % count stimulations
+                peakCount = peakCount + 1;
+            end
         end
-
+        
         if strcmp(cfg.vizualisation, 'yes')
-
             % plot the data just like a standard FieldTrip raw data strucute
             % plot(data.time{1}, data.trial{1});
             tmin = 0;
@@ -286,6 +288,15 @@ while true
         % *********************************************************************
         %   Put your own code here (e.g. display, servo-commands, etc...)
         % *********************************************************************
+        
+        % here is an example to delay 1 peak over 10
+        if mod(peakCount, 10) == 0 && strcmp(cfg.is_delayed, 'no')
+            cfg.is_delayed = 'yes';
+            disp('delay activated now');
+        elseif mod(peakCount, 10) > 0 && strcmp(cfg.is_delayed, 'yes')
+            cfg.is_delayed = 'no';
+            disp('delay desactivated now');
+        end
         
     end % if enough new samples
 end % while true

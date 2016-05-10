@@ -183,13 +183,13 @@ while true
               % initialize online filter
               if cfg.olfreq(1)==0
                 fprintf('using online low-pass filter\n');
-                [B, A] = butter(cfg.olfiltord, cfg.olfreq(2)/hdr.Fs);
-              elseif cfg.olfreq(2)>=hdr.Fs/2
+                [B, A] = butter(cfg.olfiltord, 2 * cfg.olfreq(2)/hdr.Fs);
+              elseif cfg.olfreq(2) >= hdr.Fs/2
                 fprintf('using online high-pass filter\n');
-                [B, A] = butter(cfg.olfiltord, cfg.olfreq(1)/hdr.Fs, 'high');
+                [B, A] = butter(cfg.olfiltord, 2 * cfg.olfreq(1)/hdr.Fs, 'high');
               else
                 fprintf('using online band-pass filter\n');
-                [B, A] = butter(cfg.olfiltord, cfg.olfreq/hdr.Fs);
+                [B, A] = butter(cfg.olfiltord, 2 * cfg.olfreq/hdr.Fs);
               end
               % use one sample to initialize
               [dat, z] = filter(B, A, dat);
