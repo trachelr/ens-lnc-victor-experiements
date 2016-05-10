@@ -292,10 +292,10 @@ while true
         % here is an example to delay 1 peak over 10
         if mod(peakCount, 10) == 0 && strcmp(cfg.is_delayed, 'no')
             cfg.is_delayed = 'yes';
-            disp('delay activated now');
+            % disp('delay activated now');
         elseif mod(peakCount, 10) > 0 && strcmp(cfg.is_delayed, 'yes')
             cfg.is_delayed = 'no';
-            disp('delay desactivated now');
+            % disp('delay desactivated now');
         end
         
     end % if enough new samples
